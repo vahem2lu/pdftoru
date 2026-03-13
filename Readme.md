@@ -29,8 +29,6 @@ Configure via environment variables when running the container.
 
 `APP_VERSION` is set by git tag on every build.
 
-`trusted_proxies` is list of proxies if your app is running behind reverse proxy or load balancer(s).
-
 # API Ports and Endpoints
 
 This API has one public port necessary and has several endpoints.
@@ -48,7 +46,6 @@ Example health response:
     "version": "v1.0.0",
     "uptime_seconds": 100,
     "max_upload_MB": 5,
-    "free_disk_MB": 10000 // (1024*1024)
 }
 
 ```

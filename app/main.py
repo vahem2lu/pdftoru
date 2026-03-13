@@ -1,6 +1,5 @@
 import io
 import time
-import shutil
 import pdfplumber
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, Request
@@ -8,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 from app.logging_config import setup_logging
-from app.utils import get_client_ip, validate_file_size
+from app.utils import validate_file_size
 from app.app_config import APP_VERSION, MAX_UPLOAD_SIZE_MB
 
 # ---------------------------
@@ -43,14 +42,13 @@ async def favicon() -> FileResponse:
 @app.middleware("http")
 async def request_logger(request: Request, call_next):
     start = time.time()
-    ip = get_client_ip(request)
     method = request.method
     path = request.url.path
 
     response = await call_next(request)
 
     duration = int((time.time() - start) * 1000)
-    logger.info(f"{ip} {method} {path} status={response.status_code} time={duration}ms")
+    logger.info(f"{method} {path} status={response.status_code} time={duration}ms")
 
     return response
 
@@ -75,16 +73,14 @@ async def shutdown_event():
 
 @app.get("/health")
 async def health() -> dict:
-    """Return health, uptime, version, disk usage, and max upload size."""
+    """Return health, uptime, version and max upload size."""
     uptime_seconds = int(time.time() - start_time)
-    total, used, free = shutil.disk_usage("/")
 
     return {
         "status": "ok",
         "version": APP_VERSION,
         "uptime_seconds": uptime_seconds,
         "max_upload_MB": MAX_UPLOAD_SIZE_MB,
-        "free_disk_MB": free // (1024 * 1024),
     }
 
 
@@ -100,22 +96,20 @@ async def process_pdf(request: Request, file: UploadFile, processor):
     - Applies the given processor function to pdfplumber PDF object.
     - Handles logging and errors.
     """
-    ip = get_client_ip(request)
-
     try:
         contents = await file.read()
         validate_file_size(contents)
 
-        logger.info(f"{ip} uploaded '{file.filename}' endpoint={request.url.path}")
+        logger.info(f"Uploaded '{file.filename}' endpoint={request.url.path}")
 
         with pdfplumber.open(io.BytesIO(contents)) as pdf:
             result = processor(pdf)
 
-        logger.info(f"{ip} processed '{file.filename}' successfully")
+        logger.info(f"Processed '{file.filename}' successfully")
         return result
 
     except Exception as e:
-        logger.error(f"{ip} error processing '{file.filename}': {e}")
+        logger.error(f"Error processing '{file.filename}': {e}")
         raise HTTPException(status_code=500, detail=f"PDF processing failed: {str(e)}")
 
 
