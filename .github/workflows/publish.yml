@@ -48,7 +48,7 @@ jobs:
           docker push ghcr.io/${{ github.repository_owner }}/pdftoru:latest
 
       - name: Delete old container versions
-        uses: actions/delete-package-versions@v6
+        uses: actions/delete-package-versions@v5
         with:
           package-name: pdftoru
           package-type: container
