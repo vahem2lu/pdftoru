@@ -6,8 +6,13 @@ on:
       - 'v*'  # trigger on tags like v1.0.0
 
 jobs:
-  publish:
+  build_and_push:
+    name: Build image & push
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
     steps:
       - uses: actions/checkout@v4
 
@@ -24,4 +29,3 @@ jobs:
           context: .
           push: true
           tags: ghcr.io/vahem2lu/pdftoru:latest
-          visibility: public
