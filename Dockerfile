@@ -4,7 +4,7 @@ FROM python:3.11-slim
 # Set some env variables
 ARG APP_VERSION="unknown"
 ENV APP_VERSION=${APP_VERSION}
-ENV MAX_UPLOAD_SIZE_MB=50
+ENV MAX_UPLOAD_SIZE_MB=10
 
 # Install dependencies
 RUN apt-get update && apt-get install -y \
@@ -28,4 +28,4 @@ COPY app ./app
 EXPOSE 8000
 
 # Command to start the API
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]

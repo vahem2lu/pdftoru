@@ -1,116 +1,168 @@
+import io
+import time
+import shutil
+import pdfplumber
+
 from fastapi import FastAPI, UploadFile, File, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from app.logging_config import logger
-import pdfplumber
-import shutil
-import os
-import time
 
-from app.logging_config import logger
+from app.logging_config import setup_logging
+from app.utils import get_client_ip, validate_file_size
+from app.app_config import APP_VERSION, MAX_UPLOAD_SIZE_MB
 
-APP_VERSION = os.getenv("APP_VERSION", "unknown")
-MAX_UPLOAD_SIZE_MB = int(os.getenv("MAX_UPLOAD_SIZE_MB", 50))
+# ---------------------------
+# Initialization
+# ---------------------------
+
 start_time = time.time()
-
 app = FastAPI()
+logger = setup_logging()
 
-# Mount static folder
+# ---------------------------
+# Static files
+# ---------------------------
+
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
-# Favicon route
+@app.get("/")
+async def index() -> FileResponse:
+    """Serve main HTML page."""
+    return FileResponse("app/static/index.html")
+
 @app.get("/favicon.ico")
-async def favicon():
+async def favicon() -> FileResponse:
+    """Serve favicon."""
     return FileResponse("app/static/favicon.ico")
 
-# Middleware to log all endpoint hits
+
+# ---------------------------
+# Middleware logging
+# ---------------------------
+
 @app.middleware("http")
-async def log_requests(request: Request, call_next):
-    logger.info(f"Endpoint {request.method} {request.url.path} called")
+async def request_logger(request: Request, call_next):
+    start = time.time()
+    ip = get_client_ip(request)
+    method = request.method
+    path = request.url.path
+
     response = await call_next(request)
-    logger.info(f"Endpoint {request.method} {request.url.path} completed with status {response.status_code}")
+
+    duration = int((time.time() - start) * 1000)
+    logger.info(f"{ip} {method} {path} status={response.status_code} time={duration}ms")
+
     return response
 
-# Health check
+
+# ---------------------------
+# Startup and shutdown events
+# ---------------------------
+
+@app.on_event("startup")
+async def startup_event():
+    logger.info(f"PDFToru started version={APP_VERSION}")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    logger.info(f"PDFToru shutting down version={APP_VERSION}")
+
+
+# ---------------------------
+# Health endpoint
+# ---------------------------
+
 @app.get("/health")
-async def health():
+async def health() -> dict:
+    """Return health, uptime, version, disk usage, and max upload size."""
     uptime_seconds = int(time.time() - start_time)
     total, used, free = shutil.disk_usage("/")
 
-    health_info = {
+    return {
         "status": "ok",
         "version": APP_VERSION,
         "uptime_seconds": uptime_seconds,
         "max_upload_MB": MAX_UPLOAD_SIZE_MB,
-        "free_disk_MB": free // (1024*1024)
+        "free_disk_MB": free // (1024 * 1024),
     }
 
-    logger.info(f"Health check called: {health_info}")
-    return health_info
 
-# Extract full text
-@app.post("/extract/text")
-async def extract_text(file: UploadFile = File(...)):
+# ---------------------------
+# Helper function for PDF processing
+# ---------------------------
+
+async def process_pdf(request: Request, file: UploadFile, processor):
+    """
+    Generic PDF processing function.
+
+    - Reads and validates the file.
+    - Applies the given processor function to pdfplumber PDF object.
+    - Handles logging and errors.
+    """
+    ip = get_client_ip(request)
+
     try:
         contents = await file.read()
-        size_kb = len(contents) / 1024
-        await file.seek(0)
-        logger.info(f"Received file '{file.filename}' ({size_kb:.2f} KB) at /extract/text")
+        validate_file_size(contents)
 
-        with pdfplumber.open(file.file) as pdf:
-            text = "\n".join(page.extract_text() or "" for page in pdf.pages)
+        logger.info(f"{ip} uploaded '{file.filename}' endpoint={request.url.path}")
 
-        logger.info(f"Processed file '{file.filename}' successfully")
-        return {"text": text}
+        with pdfplumber.open(io.BytesIO(contents)) as pdf:
+            result = processor(pdf)
+
+        logger.info(f"{ip} processed '{file.filename}' successfully")
+        return result
 
     except Exception as e:
-        logger.error(f"Error processing file '{file.filename}': {e}")
-        raise HTTPException(status_code=500, detail="PDF processing failed")
+        logger.error(f"{ip} error processing '{file.filename}': {e}")
+        raise HTTPException(status_code=500, detail=f"PDF processing failed: {str(e)}")
 
-# Extract words with coordinates
+
+# ---------------------------
+# PDF extraction endpoints
+# ---------------------------
+
+@app.post("/extract/text")
+async def extract_text(request: Request, file: UploadFile = File(...)) -> dict:
+    """Extract full text from PDF."""
+    return await process_pdf(
+        request, file,
+        processor=lambda pdf: {"text": "\n".join(page.extract_text() or "" for page in pdf.pages)}
+    )
+
+
 @app.post("/extract/words")
-async def extract_words(file: UploadFile = File(...)):
-    try:
-        logger.info(f"Received file '{file.filename}' at /extract/words")
-        with pdfplumber.open(file.file) as pdf:
-            words = []
-            for page in pdf.pages:
-                words.extend(page.extract_words())
-        logger.info(f"Processed file '{file.filename}' successfully")
-        return {"words": words}
-    except Exception as e:
-        logger.error(f"Error processing file '{file.filename}': {e}")
-        raise HTTPException(status_code=500, detail="PDF processing failed")
+async def extract_words(request: Request, file: UploadFile = File(...)) -> dict:
+    """Extract all words from PDF."""
+    return await process_pdf(
+        request, file,
+        processor=lambda pdf: {"words": [word for page in pdf.pages for word in page.extract_words()]}
+    )
 
-# Extract tables
+
 @app.post("/extract/tables")
-async def extract_tables(file: UploadFile = File(...)):
-    try:
-        logger.info(f"Received file '{file.filename}' at /extract/tables")
-        with pdfplumber.open(file.file) as pdf:
-            tables = [page.extract_tables() for page in pdf.pages]
-        logger.info(f"Processed file '{file.filename}' successfully")
-        return {"tables": tables}
-    except Exception as e:
-        logger.error(f"Error processing file '{file.filename}': {e}")
-        raise HTTPException(status_code=500, detail="PDF processing failed")
+async def extract_tables(request: Request, file: UploadFile = File(...)) -> dict:
+    """Extract all tables from PDF."""
+    return await process_pdf(
+        request, file,
+        processor=lambda pdf: {"tables": [table for page in pdf.pages for table in page.extract_tables()]}
+    )
 
-# Extract layout objects
+
 @app.post("/extract/layout")
-async def extract_layout(file: UploadFile = File(...)):
-    try:
-        logger.info(f"Received file '{file.filename}' at /extract/layout")
-        layout_objects = []
-        with pdfplumber.open(file.file) as pdf:
-            for page in pdf.pages:
-                layout_objects.append({
+async def extract_layout(request: Request, file: UploadFile = File(...)) -> dict:
+    """Extract layout objects (rects, lines, chars, words) from PDF."""
+    def layout_processor(pdf):
+        return {
+            "layout": [
+                {
                     "rects": page.rects,
                     "lines": page.lines,
                     "chars": page.chars,
                     "words": page.extract_words()
-                })
-        logger.info(f"Processed file '{file.filename}' successfully")
-        return {"layout": layout_objects}
-    except Exception as e:
-        logger.error(f"Error processing file '{file.filename}': {e}")
-        raise HTTPException(status_code=500, detail="PDF processing failed")
+                } for page in pdf.pages
+            ]
+        }
+
+    return await process_pdf(request, file, layout_processor)

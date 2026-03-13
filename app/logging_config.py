@@ -1,18 +1,20 @@
 import logging
 import sys
+import time
 
-# Create a logger for the PDFToru app
-logger = logging.getLogger("pdftoru")
-logger.setLevel(logging.INFO)
+def setup_logging():
+    formatter = logging.Formatter(
+        fmt="%(asctime)sZ [%(levelname)s] %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%S"
+    )
+    formatter.converter = time.gmtime  # UTC
 
-# StreamHandler to stdout (Docker-friendly)
-console_handler = logging.StreamHandler(sys.stdout)
-console_handler.setLevel(logging.INFO)
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(formatter)
 
-# Log format: timestamp | level | message
-formatter = logging.Formatter(
-    "%(asctime)s | %(levelname)s | %(message)s"
-)
-console_handler.setFormatter(formatter)
+    logger = logging.getLogger("pdftoru")
+    logger.setLevel(logging.INFO)
+    logger.addHandler(handler)
+    logger.propagate = False
 
-logger.addHandler(console_handler)
+    return logger

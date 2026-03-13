@@ -25,9 +25,11 @@ Available tags:
 
 Configure via environment variables when running the container.
 
-`MAX_UPLOAD_SIZE_MB` can be changed via environment values. Default is `50`. Unit is `MB`.
+`MAX_UPLOAD_SIZE_MB` can be changed via environment values. Default is `10`. Unit is `MB`.
 
 `APP_VERSION` is set by git tag on every build.
+
+`trusted_proxies` is list of proxies if your app is running behind reverse proxy or load balancer(s).
 
 # API Ports and Endpoints
 
