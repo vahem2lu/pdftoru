@@ -16,6 +16,15 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Extract version info
+        id: version
+        run: |
+          VERSION=${GITHUB_REF_NAME}
+          MAJOR_MINOR=$(echo $VERSION | cut -d. -f1,2)
+
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "MAJOR_MINOR=$MAJOR_MINOR" >> $GITHUB_ENV
+
       - name: Log in to GHCR
         uses: docker/login-action@v2.2.0
         with:
@@ -23,9 +32,24 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
+      - name: Build Docker image
+        run: |
+          docker build \
+            --build-arg APP_VERSION=$VERSION \
+            -t ghcr.io/${{ github.repository_owner }}/pdftoru:$VERSION \
+            -t ghcr.io/${{ github.repository_owner }}/pdftoru:$MAJOR_MINOR \
+            -t ghcr.io/${{ github.repository_owner }}/pdftoru:latest \
+            .
+
+      - name: Push images
+        run: |
+          docker push ghcr.io/${{ github.repository_owner }}/pdftoru:$VERSION
+          docker push ghcr.io/${{ github.repository_owner }}/pdftoru:$MAJOR_MINOR
+          docker push ghcr.io/${{ github.repository_owner }}/pdftoru:latest
+
+      - name: Delete old container versions
+        uses: actions/delete-package-versions@v5
         with:
-          context: .
-          push: true
-          tags: ghcr.io/vahem2lu/pdftoru:latest
+          package-name: pdftoru
+          package-type: container
+          min-versions-to-keep: 3
